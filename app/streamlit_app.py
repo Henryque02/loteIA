@@ -8,8 +8,29 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import requests
 import streamlit as st
+from matplotlib.ticker import FuncFormatter
 
-from loteia.report import payload_de_params, tem_params_relatorio
+from loteia.report import (
+    payload_de_params,
+    resumo_respostas,
+    tem_params_relatorio,
+)
+
+_VERDE, _VERMELHO, _AZUL = "#2ca02c", "#d62728", "#3b7dd8"
+
+
+def _fmt_reais(v: float, _=None) -> str:
+    """Formata valor em R$ com sufixo legível (mi/mil) — mata o '1e7' do eixo."""
+    a = abs(v)
+    if a >= 1_000_000:
+        return f"R$ {v / 1_000_000:,.1f} mi".replace(".0 mi", " mi")
+    if a >= 1_000:
+        return f"R$ {v / 1_000:,.0f} mil"
+    return f"R$ {v:,.0f}"
+
+
+def _fmt_pct(v: float, _=None) -> str:
+    return f"{v * 100:.0f}%"
 
 API = os.environ.get("LOTEIA_API", "http://localhost:8000")
 
@@ -38,24 +59,46 @@ def _quadra_latlon(setor: str, quadra: str) -> dict | None:
         return None
 
 
-def _barras_horizontais(rotulos: list[str], valores: list[float], titulo: str):
-    fig, ax = plt.subplots(figsize=(6, 0.5 * len(rotulos) + 1))
-    cores = ["#d62728" if v < 0 else "#2ca02c" for v in valores]
-    ax.barh(rotulos, valores, color=cores)
+def _estilo(ax):
+    """Estilo limpo: sem spines de topo/direita, fonte do título maior."""
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.title.set_size(13)
+    ax.title.set_weight("bold")
+
+
+def _barras_horizontais(rotulos, valores, titulo, rotulo_fn):
+    """Barras horizontais com rótulo de valor em cada barra. `rotulo_fn(v)`
+    formata o texto (R$ mi, %, etc.); cor por sinal (verde positivo, vermelho)."""
+    fig, ax = plt.subplots(figsize=(6, 0.6 * len(rotulos) + 1.2))
+    cores = [_VERMELHO if v < 0 else _VERDE for v in valores]
+    barras = ax.barh(rotulos, valores, color=cores)
+    ax.bar_label(barras, labels=[rotulo_fn(v) for v in valores],
+                 padding=4, fontsize=10)
     ax.set_title(titulo)
-    ax.axvline(0, color="black", linewidth=0.8)
+    ax.axvline(0, color="#444", linewidth=0.8)
+    ax.set_xticks([])  # o número está no rótulo da barra
+    margem = max(abs(min(valores)), abs(max(valores))) * 0.28 or 1
+    ax.set_xlim(min(0, min(valores)) - margem, max(0, max(valores)) + margem)
+    _estilo(ax)
     fig.tight_layout()
     st.pyplot(fig)
     plt.close(fig)
 
 
-def _histograma(valores: list[float], titulo: str, alvo: float | None = None):
+def _histograma(valores, titulo, alvo=None, formato="moeda", rotulo_alvo="meta"):
+    """Histograma com eixo X formatado (moeda em R$ mi ou percentual)."""
     fig, ax = plt.subplots(figsize=(6, 3))
-    ax.hist(valores, bins=40, color="#1f77b4", alpha=0.85)
+    ax.hist(valores, bins=40, color=_AZUL, alpha=0.9)
     if alvo is not None:
-        ax.axvline(alvo, color="#d62728", linestyle="--", label="alvo")
-        ax.legend()
+        ax.axvline(alvo, color=_VERMELHO, linestyle="--", linewidth=1.6,
+                   label=rotulo_alvo)
+        ax.legend(frameon=False)
+    ax.xaxis.set_major_formatter(
+        FuncFormatter(_fmt_reais if formato == "moeda" else _fmt_pct)
+    )
+    ax.set_yticks([])
     ax.set_title(titulo)
+    _estilo(ax)
     fig.tight_layout()
     st.pyplot(fig)
     plt.close(fig)
@@ -81,28 +124,46 @@ def _render_relatorio(corpo: dict):
     m3.metric("Preço/m² (mediana)", f"R$ {faixa['med']:,.0f}")
     m4.metric("Preço/m² (90%)", f"R$ {faixa['sup']:,.0f}")
 
+    _NOMES_INPUT = {
+        "preco_lote": "Preço de venda do lote",
+        "custo_infra": "Custo de infraestrutura",
+        "meses_vendas": "Velocidade de venda",
+    }
+
     dist = corpo.get("distribuicoes")
     g1, g2 = st.columns(2)
     with g1:
         if dist and dist["tir_anual"]:
-            _histograma(dist["tir_anual"], "Distribuição da TIR anual",
-                        alvo=corpo["taxa_alvo_anual"])
+            _histograma(dist["tir_anual"], "Rentabilidade anual do projeto (TIR)",
+                        alvo=corpo["taxa_alvo_anual"], formato="pct",
+                        rotulo_alvo="meta")
+            st.caption("**TIR** = taxa interna de retorno: a rentabilidade efetiva "
+                       "do projeto ao ano. Quanto mais à direita da meta, melhor.")
     with g2:
         if dist:
-            _histograma(dist["vpl"], "Distribuição do VPL (R$)", alvo=0.0)
+            _histograma(dist["vpl"], "Lucro a valor presente (VPL)",
+                        alvo=0.0, formato="moeda", rotulo_alvo="empata (R$ 0)")
+            st.caption("**VPL** = valor presente líquido: o lucro do projeto trazido "
+                       "para hoje. Acima de R$ 0 = projeto cria valor.")
 
     g3, g4 = st.columns(2)
     with g3:
         sens = pd.DataFrame(corpo["sensibilidade"])
-        _barras_horizontais(sens["variavel"].tolist()[::-1],
-                            sens["amplitude"].tolist()[::-1],
-                            "Sensibilidade do VPL (tornado)")
+        rotulos = [_NOMES_INPUT.get(v, v) for v in sens["variavel"]][::-1]
+        _barras_horizontais(rotulos, sens["amplitude"].tolist()[::-1],
+                            "O que mais muda o resultado", _fmt_reais)
+        st.caption("Quanto o lucro (VPL) varia quando cada fator vai do pior ao "
+                   "melhor cenário. A barra maior é o fator decisivo.")
     with g4:
         if corpo["fatores_shap"]:
             contrib = corpo["fatores_shap"]["contribuicoes"]
+            total = sum(abs(v) for v in contrib.values()) or 1
             ordem = sorted(contrib, key=lambda k: abs(contrib[k]))
             _barras_horizontais(ordem, [contrib[k] for k in ordem],
-                                "Fatores do preço/m² (SHAP, R$/m²)")
+                                "O que explica o preço do terreno",
+                                lambda v: f"{v / total * 100:+.0f}%")
+            st.caption("Peso de cada fator na estimativa do preço/m² (verde puxa "
+                       "para cima, vermelho para baixo).")
 
 
 # ---------------- modo relatório (link do n8n) ----------------
@@ -112,10 +173,21 @@ if tem_params_relatorio(_params):
     setor_r, quadra_r = _params.get("setor", ""), _params.get("quadra", "")
     st.subheader(f"Relatório de viabilidade — {emp}" if emp
                  else "Relatório de viabilidade")
-    st.caption(f"Setor fiscal {setor_r} · quadra {quadra_r}")
+
+    # painel read-only com as respostas do cliente (vindas do Form)
+    st.markdown("##### Dados do empreendimento")
+    itens = resumo_respostas(_params)
+    for inicio in range(0, len(itens), 4):
+        cols = st.columns(4)
+        for col, (rotulo, valor) in zip(cols, itens[inicio:inicio + 4]):
+            col.metric(rotulo, valor)
+
     loc = _quadra_latlon(setor_r, quadra_r)
     if loc:
-        st.map(pd.DataFrame({"lat": [loc["lat"]], "lon": [loc["lon"]]}), zoom=14)
+        st.map(pd.DataFrame({"lat": [loc["lat"]], "lon": [loc["lon"]]}), zoom=13)
+
+    st.divider()
+    st.markdown("##### Resultado da análise")
     corpo = _post("/viabilidade", payload_de_params(_params))
     if corpo:
         _render_relatorio(corpo)
@@ -137,7 +209,6 @@ with st.sidebar:
         help="Mercado quente: preço alto coincide com venda rápida. "
         "0 = inputs independentes; mais alto = caudas conjuntas mais realistas.",
     )
-    st.caption(f"API: {API}")
 
     local = _quadra_latlon(setor, quadra)
     if local:

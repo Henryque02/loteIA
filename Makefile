@@ -1,4 +1,4 @@
-.PHONY: data geo train api front test lint
+.PHONY:  data geo train api front test lint
 front: ; uv run streamlit run app/streamlit_app.py
 data:  ; uv run python -m loteia.data.download && uv run python -m loteia.data.join
 geo:   ; uv run python -m loteia.data.geo

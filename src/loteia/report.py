@@ -15,6 +15,51 @@ def tem_params_relatorio(params: Mapping[str, str]) -> bool:
     return all(params.get(k) not in (None, "") for k in OBRIGATORIOS)
 
 
+def _reais(v: float) -> str:
+    """R$ com sufixo legível e decimal brasileiro (1,5 mi)."""
+    a = abs(v)
+    if a >= 1_000_000:
+        s = f"{v / 1_000_000:.1f}".rstrip("0").rstrip(".").replace(".", ",")
+        return f"R$ {s} mi"
+    if a >= 1_000:
+        return f"R$ {v / 1_000:.0f} mil"
+    return f"R$ {v:.0f}"
+
+
+def _pct(v: float) -> str:
+    return f"{v * 100:.0f}%"
+
+
+def resumo_respostas(params: Mapping[str, str]) -> list[tuple[str, str]]:
+    """Painel read-only das respostas do cliente (rótulo, valor formatado).
+
+    Mostra o que foi pedido no Form, formatado (R$, %, m²), para o relatório.
+    """
+    def f(chave: str, default: float = 0.0) -> float:
+        v = params.get(chave)
+        return float(v) if v not in (None, "") else float(default)
+
+    itens: list[tuple[str, str]] = []
+    emp = params.get("empreendimento")
+    if emp:
+        itens.append(("Empreendimento", emp))
+    itens += [
+        ("Localização", f"Setor {params.get('setor', '')} · "
+                        f"Quadra {params.get('quadra', '')}"),
+        ("Área do lote", f"{f('area_lote_m2'):.0f} m²"),
+        ("Nº de lotes", f"{int(f('n_lotes'))}"),
+        ("Custo da gleba", _reais(f("custo_gleba"))),
+        ("Custo de infra", _reais(f("infra_moda"))),
+        ("Prazo de obra", f"{int(f('meses_obra'))} meses"),
+        ("Prazo de vendas", f"{int(f('vendas_moda'))} meses"),
+        ("Taxa-alvo (a.a.)", _pct(f("taxa_alvo_anual"))),
+        ("Comissão/impostos/marketing",
+         f"{_pct(f('comissao_pct'))} / {_pct(f('impostos_pct'))} / "
+         f"{_pct(f('marketing_pct'))}"),
+    ]
+    return itens
+
+
 def payload_de_params(params: Mapping[str, str]) -> dict:
     """Reconstrói o corpo de POST /viabilidade a partir dos query params.
 

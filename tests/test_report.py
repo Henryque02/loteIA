@@ -1,7 +1,11 @@
 """Testes do modo relatório: reconstrução do payload a partir da URL (query params)."""
 import pytest
 
-from loteia.report import payload_de_params, tem_params_relatorio
+from loteia.report import (
+    payload_de_params,
+    resumo_respostas,
+    tem_params_relatorio,
+)
 
 
 def _params_completos(**over):
@@ -74,3 +78,23 @@ class TestPayloadDeParams:
         assert p["projeto"]["custos"]["comissao_pct"] == 0.0
         assert p["rho_mercado"] == pytest.approx(0.5)
         assert p["terreno"]["testada"] == 10.0  # default
+
+
+class TestResumoRespostas:
+    def test_devolve_pares_rotulo_valor_formatados(self):
+        itens = dict(resumo_respostas(_params_completos()))
+        assert itens["Empreendimento"] == "Jardim X"
+        assert itens["Localização"] == "Setor 085 · Quadra 013"
+        assert itens["Área do lote"] == "300 m²"
+        assert itens["Nº de lotes"] == "80"
+        assert itens["Custo da gleba"] == "R$ 25 mi"
+        assert itens["Taxa-alvo (a.a.)"] == "15%"
+
+    def test_formata_milhoes_com_decimal(self):
+        itens = dict(resumo_respostas(_params_completos(custo_gleba="1500000")))
+        assert itens["Custo da gleba"] == "R$ 1,5 mi"
+
+    def test_sem_empreendimento_omite_a_linha(self):
+        p = _params_completos()
+        del p["empreendimento"]
+        assert "Empreendimento" not in dict(resumo_respostas(p))
