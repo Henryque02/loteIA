@@ -6,24 +6,38 @@ transformam essa estimativa (com incerteza) numa **probabilidade de o
 empreendimento superar a rentabilidade-alvo**. Projeto final da disciplina LIA.
 
 ## Stack
-- Python 3.11+ · pandas, scikit-learn, SHAP · FastAPI · joblib
-- Incerteza: regressão quantílica / conformal (MAPIE)
+- Python 3.12+ · pandas, scikit-learn, SHAP · FastAPI · joblib
+- Incerteza: regressão quantílica / conformal (MAPIE — CQR)
+- Geo (C5): geopandas, pyproj, scipy (OSM/Overpass, GeoSampa WFS, IBGE)
 - Front: Streamlit (ou Lovable) · Automação: n8n
+- Deps geridas por `uv` (`pyproject.toml` + `uv.lock`); o pacote `loteia` é
+  instalado pelo build-system (hatchling, layout `src/`).
 
 ## Comandos
-- `uv sync` (ou `uv pip install -r requirements.txt`) — instalar deps
-- `make data` — baixar e processar ITBI + IPTU de SP
-- `make train` — treinar o modelo de preço (gera models/*.joblib)
-- `make api` — subir a FastAPI (uvicorn) em localhost
-- `make test` — rodar os testes (pytest)
+- `uv sync` — instala as deps **e** o pacote `loteia` (editável). Exige a seção
+  `[build-system]` no pyproject; sem ela `import loteia` falha e todo `make` quebra.
+- `make data` — baixa e processa ITBI de SP (2023/24) → parquet em `data/interim`
+- `make geo` — baixa quadras (GeoSampa WFS), POIs (OSM), renda (IBGE) e
+  zoneamento → caches em `data/interim` (Camada 5)
+- `make train` — treina o modelo pontual + o quantílico (gera `models/*.joblib`)
+- `make api` — sobe a FastAPI (uvicorn) em `localhost:8000`
+- `make front` — sobe o Streamlit em `localhost:8501` (noutro terminal, com a API no ar)
+- `make test` — roda os testes (pytest)
+- `make lint` — `ruff check src tests`
 
 ## Mapa do repositório
 - `src/loteia/data/` — download, join por **SQL** (= Setor-Quadra-Lote, a chave do
-  cadastro; é uma coluna, NÃO banco de dados — junta-se com pandas `merge`) e features
-- `src/loteia/model/` — treino, incerteza (C1), explicação SHAP (C3)
+  cadastro; é uma coluna, NÃO banco de dados — junta-se com pandas `merge`),
+  features geoespaciais (`features.py`, `geo.py`) e cadastro ano-alinhado (`tpcl.py`)
+- `src/loteia/model/` — treino, incerteza (C1), explicação SHAP (C3),
+  experimento geo (C5, `experimento_geo.py`)
 - `src/loteia/finance/` — fluxo de caixa, Monte Carlo (C2), sensibilidade (C3)
 - `src/loteia/optimize/` — highest-and-best-use (C6, opcional)
-- `src/loteia/api/` — FastAPI `/viabilidade`
+- `src/loteia/api/` — FastAPI: `POST /viabilidade`, `POST /otimizar` (C6),
+  `GET /quadra/{setor}/{quadra}`, `GET /health`
+- `src/loteia/report.py` — modo relatório do front (reconstrói o payload a partir
+  de query params; é o que o n8n usa para abrir o Streamlit já preenchido)
+- `n8n/` — workflow da Camada 4 (Google Form → valida → API → email + link Streamlit)
 - `notebooks/` — só exploração; a lógica mora em `src/loteia`
 - `data/` e `models/` — NÃO versionar (estão no .gitignore)
 
@@ -48,3 +62,5 @@ empreendimento superar a rentabilidade-alvo**. Projeto final da disciplina LIA.
 - Type hints; formatação com ruff/black. Seeds fixas para reprodutibilidade.
 - Artefatos serializados em `.joblib` dentro de `models/`.
 - A API carrega os artefatos uma vez na inicialização.
+- Classes pickladas (modelos) são importadas pela referência canônica do módulo
+  ao rodar como script, para que o artefato carregue na API (não como `__main__.*`).
