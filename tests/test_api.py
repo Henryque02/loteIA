@@ -178,6 +178,29 @@ class TestOtimizar:
     def test_payload_invalido_da_422(self, client):
         assert client.post("/otimizar", json={"terreno": {}}).status_code == 422
 
+    def test_aceita_rho_mercado(self, client):
+        r = client.post("/otimizar", json={**PAYLOAD_OTIMIZAR, "rho_mercado": 0.6})
+        assert r.status_code == 200
+        assert len(r.json()["configuracoes"]) == 3
+
+
+class TestCorrelacaoMercado:
+    def test_rho_altera_a_distribuicao(self, client):
+        base = {**PAYLOAD, "incluir_distribuicao": True}
+        sem = client.post("/viabilidade", json={**base, "rho_mercado": 0.0}).json()
+        com = client.post("/viabilidade", json={**base, "rho_mercado": 0.9}).json()
+        # a correlação muda o caminho de amostragem → distribuição de VPL diferente
+        assert sem["distribuicoes"]["vpl"] != com["distribuicoes"]["vpl"]
+
+    def test_default_aceito_sem_rho(self, client):
+        # omitir rho_mercado usa o default do produto (correlação moderada)
+        assert client.post("/viabilidade", json=PAYLOAD).status_code == 200
+
+    def test_rho_fora_do_intervalo_da_422(self, client):
+        assert client.post(
+            "/viabilidade", json={**PAYLOAD, "rho_mercado": 1.5}
+        ).status_code == 422
+
 
 class TestViabilidadeComModeloGeo:
     """Integração com o artefato real (features geoespaciais) e caches locais."""

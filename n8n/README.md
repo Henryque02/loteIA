@@ -1,9 +1,17 @@
 # Camada 4 — Orquestração (n8n)
 
 Workflow `workflow_viabilidade.json`: o cliente preenche um **Google Form**, o
-fluxo valida os dados, chama a **API de viabilidade** e devolve o veredito por
-**email**. Camada 4 do LoteIA — nenhuma alteração no código Python; só consome a
-API existente.
+fluxo valida os dados, chama a **API de viabilidade** e devolve por **email** o
+veredito + um **link para o relatório interativo no Streamlit** (mapa, histogramas
+de TIR/VPL, tornado, SHAP). A planilha de resultados vira **log interno**. Camada 4
+do LoteIA — nenhuma alteração no código Python; só consome a API existente.
+
+O nó `Formatar relatório` monta a URL do Streamlit em **modo relatório**
+(`http://STREAMLIT_BASE/?setor=...&n_lotes=...`), que a página lê via
+`st.query_params` (`loteia.report.payload_de_params`) e renderiza sozinha — o
+cliente não preenche nada de novo. Ajuste `STREAMLIT_BASE` no topo do nó (default
+`http://localhost:8501`; para clientes reais, publique o Streamlit e use a URL
+pública).
 
 ## Fluxo
 
@@ -44,6 +52,7 @@ perguntas devem casar exatamente com os nomes abaixo** (são lidos pelo nó
 
 | Pergunta | Default aplicado |
 |---|---|
+| Empreendimento | _(rótulo livre; aparece no veredito/planilha)_ |
 | Parcelas | `12` |
 | Comissão (%) | `6%` |
 | Impostos (%) | `4%` |
@@ -68,11 +77,21 @@ triangular (moda, metade/dobro). Números no formato brasileiro
 3. **Planilhas**: aponte o trigger para a planilha de **respostas do Form** e o
    nó "Gravar na planilha" para a planilha de **Resultados** (crie uma aba
    `Resultados`). Atualize o link no nó "Enviar email ao solicitante".
-4. **API**: defina a variável de ambiente do n8n `API_BASE_URL`
-   (default `http://localhost:8000`). Suba a API com `make api`.
-   - n8n e API na mesma máquina → `http://localhost:8000`.
-   - n8n em nuvem/contêiner → exponha a API por um túnel (ex.: `ngrok http 8000`)
-     e use a URL pública em `API_BASE_URL`.
+4. **API**: as URLs dos nós HTTP apontam para `http://host.docker.internal:8000`
+   (já no JSON). Suba a API ouvindo em todas as interfaces, não só localhost:
+   `uv run uvicorn loteia.api.main:app --host 0.0.0.0 --port 8000`.
+   - **n8n via Docker** (caso comum): no `docker-compose.yml` do n8n, adicione ao
+     serviço `extra_hosts: ["host.docker.internal:host-gateway"]` e recrie o
+     container (`docker compose up -d`). Sem isso, o container não enxerga a API
+     do host e os nós dão `ECONNREFUSED`. **Não** use `localhost` na URL: dentro do
+     container, `localhost` é o próprio container.
+   - **n8n nativo na mesma máquina** → troque a URL dos dois nós para
+     `http://localhost:8000`.
+   - **n8n em nuvem** → exponha a API por túnel (ex.: `ngrok http 8000`) e use a
+     URL pública nos dois nós HTTP.
+   - Lembrete: o n8n bloqueia `$env` em expressões por padrão
+     (`[access to env vars denied]`); por isso a URL é fixa no JSON, não via
+     `API_BASE_URL`.
 5. **Ativar** o workflow.
 
 ## Verificação rápida (sem n8n)

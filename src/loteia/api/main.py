@@ -74,6 +74,9 @@ class PedidoViabilidade(BaseModel):
     n_sims: int = Field(default=10_000, gt=0, le=100_000)
     seed: int = SEED
     incluir_distribuicao: bool = False
+    # correlação preço↔absorção (mercado quente: preço alto + venda rápida).
+    # 0.5 = moderada (default do produto); 0 = inputs independentes.
+    rho_mercado: float = Field(default=0.5, ge=0, lt=1)
 
 
 class Gleba(BaseModel):
@@ -94,6 +97,7 @@ class PedidoOtimizar(BaseModel):
     gleba: Gleba
     n_sims: int = Field(default=5_000, gt=0, le=100_000)
     seed: int = SEED
+    rho_mercado: float = Field(default=0.5, ge=0, lt=1)
 
 
 def _percentis(x: np.ndarray) -> dict[str, float | None]:
@@ -185,6 +189,7 @@ def criar_app(
             n_parcelas=p.n_parcelas,
             custos=custos,
             mes_inicio_vendas=p.mes_inicio_vendas,
+            rho_mercado=pedido.rho_mercado,
             n_sims=pedido.n_sims,
             seed=pedido.seed,
         )
@@ -278,6 +283,7 @@ def criar_app(
             n_parcelas=g.n_parcelas,
             custos=g.custos.como_custos(),
             mes_inicio_vendas=g.mes_inicio_vendas,
+            rho_mercado=pedido.rho_mercado,
             n_sims=pedido.n_sims,
             seed=pedido.seed,
         )

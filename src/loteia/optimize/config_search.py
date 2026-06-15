@@ -45,6 +45,7 @@ def otimizar_configuracao(
     n_parcelas: int = 1,
     custos: Custos = Custos(),
     mes_inicio_vendas: int = 1,
+    rho_mercado: float = 0.0,
     n_sims: int = 5_000,
     seed: int = SEED,
 ) -> pd.DataFrame:
@@ -76,6 +77,7 @@ def otimizar_configuracao(
             n_parcelas=n_parcelas,
             custos=custos,
             mes_inicio_vendas=mes_inicio_vendas,
+            rho_mercado=rho_mercado,
             n_sims=n_sims,
             seed=seed,
         )

@@ -1,12 +1,15 @@
 """Front Streamlit do LoteIA: consome a FastAPI (mesmo caminho do n8n).
 Aba 1: viabilidade de um projeto definido. Aba 2: otimizador de configuração.
-Suba a API antes: `make api` (e este front com `make front`)."""
+Modo relatório: se a URL traz os parâmetros (link do n8n), renderiza a análise
+pronta e pula o formulário. Suba a API antes: `make api` (front com `make front`)."""
 import os
 
 import matplotlib.pyplot as plt
 import pandas as pd
 import requests
 import streamlit as st
+
+from loteia.report import payload_de_params, tem_params_relatorio
 
 API = os.environ.get("LOTEIA_API", "http://localhost:8000")
 
@@ -67,12 +70,73 @@ def _faixa(rotulo: str, minimo: float, moda: float, maximo: float, passo: float)
     )
 
 
+def _render_relatorio(corpo: dict):
+    """Renderiza o relatório de viabilidade (métricas + gráficos) a partir da
+    resposta de /viabilidade. Usado pela aba interativa e pelo modo relatório."""
+    prob = corpo["prob_viavel"]
+    faixa = corpo["faixa_preco_m2"]
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("P(superar a taxa-alvo)", f"{prob:.0%}")
+    m2.metric("Preço/m² (10%)", f"R$ {faixa['inf']:,.0f}")
+    m3.metric("Preço/m² (mediana)", f"R$ {faixa['med']:,.0f}")
+    m4.metric("Preço/m² (90%)", f"R$ {faixa['sup']:,.0f}")
+
+    dist = corpo.get("distribuicoes")
+    g1, g2 = st.columns(2)
+    with g1:
+        if dist and dist["tir_anual"]:
+            _histograma(dist["tir_anual"], "Distribuição da TIR anual",
+                        alvo=corpo["taxa_alvo_anual"])
+    with g2:
+        if dist:
+            _histograma(dist["vpl"], "Distribuição do VPL (R$)", alvo=0.0)
+
+    g3, g4 = st.columns(2)
+    with g3:
+        sens = pd.DataFrame(corpo["sensibilidade"])
+        _barras_horizontais(sens["variavel"].tolist()[::-1],
+                            sens["amplitude"].tolist()[::-1],
+                            "Sensibilidade do VPL (tornado)")
+    with g4:
+        if corpo["fatores_shap"]:
+            contrib = corpo["fatores_shap"]["contribuicoes"]
+            ordem = sorted(contrib, key=lambda k: abs(contrib[k]))
+            _barras_horizontais(ordem, [contrib[k] for k in ordem],
+                                "Fatores do preço/m² (SHAP, R$/m²)")
+
+
+# ---------------- modo relatório (link do n8n) ----------------
+_params = st.query_params
+if tem_params_relatorio(_params):
+    emp = _params.get("empreendimento", "")
+    setor_r, quadra_r = _params.get("setor", ""), _params.get("quadra", "")
+    st.subheader(f"Relatório de viabilidade — {emp}" if emp
+                 else "Relatório de viabilidade")
+    st.caption(f"Setor fiscal {setor_r} · quadra {quadra_r}")
+    loc = _quadra_latlon(setor_r, quadra_r)
+    if loc:
+        st.map(pd.DataFrame({"lat": [loc["lat"]], "lon": [loc["lon"]]}), zoom=14)
+    corpo = _post("/viabilidade", payload_de_params(_params))
+    if corpo:
+        _render_relatorio(corpo)
+    st.caption("Resultado probabilístico (simulação de Monte Carlo) — não é "
+               "garantia de resultado do empreendimento.")
+    st.stop()
+
+
 # ---------------- sidebar: terreno ----------------
 with st.sidebar:
     st.header("Terreno")
     setor = st.text_input("Setor fiscal (3 dígitos)", value="085")
     quadra = st.text_input("Quadra fiscal (3 dígitos)", value="013")
     testada = st.number_input("Testada (m)", value=10.0, min_value=1.0, step=1.0)
+    st.divider()
+    st.subheader("Mercado")
+    rho_mercado = st.slider(
+        "Correlação preço↔absorção", 0.0, 0.95, 0.5, 0.05,
+        help="Mercado quente: preço alto coincide com venda rápida. "
+        "0 = inputs independentes; mais alto = caudas conjuntas mais realistas.",
+    )
     st.caption(f"API: {API}")
 
     local = _quadra_latlon(setor, quadra)
@@ -143,47 +207,11 @@ with aba_viab:
                 },
                 "n_sims": int(n_sims),
                 "incluir_distribuicao": True,
+                "rho_mercado": rho_mercado,
             },
         )
         if corpo:
-            prob = corpo["prob_viavel"]
-            faixa = corpo["faixa_preco_m2"]
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("P(superar a taxa-alvo)", f"{prob:.0%}")
-            m2.metric("Preço/m² (10%)", f"R$ {faixa['inf']:,.0f}")
-            m3.metric("Preço/m² (mediana)", f"R$ {faixa['med']:,.0f}")
-            m4.metric("Preço/m² (90%)", f"R$ {faixa['sup']:,.0f}")
-
-            dist = corpo["distribuicoes"]
-            g1, g2 = st.columns(2)
-            with g1:
-                if dist and dist["tir_anual"]:
-                    _histograma(
-                        dist["tir_anual"],
-                        "Distribuição da TIR anual",
-                        alvo=corpo["taxa_alvo_anual"],
-                    )
-            with g2:
-                if dist:
-                    _histograma(dist["vpl"], "Distribuição do VPL (R$)", alvo=0.0)
-
-            g3, g4 = st.columns(2)
-            with g3:
-                sens = pd.DataFrame(corpo["sensibilidade"])
-                _barras_horizontais(
-                    sens["variavel"].tolist()[::-1],
-                    sens["amplitude"].tolist()[::-1],
-                    "Sensibilidade do VPL (tornado)",
-                )
-            with g4:
-                if corpo["fatores_shap"]:
-                    contrib = corpo["fatores_shap"]["contribuicoes"]
-                    ordem = sorted(contrib, key=lambda k: abs(contrib[k]))
-                    _barras_horizontais(
-                        ordem,
-                        [contrib[k] for k in ordem],
-                        "Fatores do preço/m² (SHAP, R$/m²)",
-                    )
+            _render_relatorio(corpo)
 
 
 # ---------------- aba 2: otimizador ----------------
@@ -250,6 +278,7 @@ with aba_otim:
                         },
                     },
                     "n_sims": int(n_sims_o),
+                    "rho_mercado": rho_mercado,
                 },
             )
             if corpo:
