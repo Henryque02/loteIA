@@ -1,0 +1,388 @@
+{
+  "name": "LoteIA — Viabilidade (Form → análise → email)",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "documentId": {
+          "__rl": true,
+          "value": "SUA_PLANILHA_DE_RESPOSTAS",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Respostas ao formulário 1",
+          "mode": "name"
+        },
+        "event": "rowAdded"
+      },
+      "id": "nova-resposta-do-form",
+      "name": "Nova resposta do Form",
+      "type": "n8n-nodes-base.googleSheetsTrigger",
+      "typeVersion": 2,
+      "position": [
+        240,
+        380
+      ],
+      "credentials": {
+        "googleSheetsTriggerOAuth2Api": {
+          "id": "1",
+          "name": "Google Sheets (configurar)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "// Mapeia a linha do Google Form/Sheets para o payload de /viabilidade,\n// aplica defaults de mercado e lista campos obrigatórios faltantes.\nconst row = $json;\nconst num = (v) => {\n  if (v === undefined || v === null || v === '') return null;\n  const n = Number(String(v).replace(/\\./g, '').replace(',', '.').replace(/[^0-9.\\-]/g, ''));\n  return Number.isFinite(n) ? n : null;\n};\nconst pct = (v, d) => { const n = num(v); if (n === null) return d; return n > 1 ? n / 100 : n; };\nconst def = (v, d) => (v === null ? d : v);\n\nconst setor = String(row['Setor'] ?? '').trim();\nconst quadra = String(row['Quadra'] ?? '').trim();\nconst area = num(row['Área do lote (m²)']);\nconst nLotes = num(row['Nº de lotes']);\nconst gleba = num(row['Custo da gleba (R$)']);\nconst infra = num(row['Custo de infra (R$)']);\nconst mesesObra = num(row['Meses de obra']);\nconst mesesVenda = num(row['Meses de venda']);\nlet taxa = num(row['Taxa-alvo anual (%)']);\nif (taxa !== null && taxa > 1) taxa = taxa / 100;\nconst email = String(row['Email'] ?? '').trim();\n\nconst obrig = {\n  'Setor': setor, 'Quadra': quadra, 'Área do lote': area, 'Nº de lotes': nLotes,\n  'Custo da gleba': gleba, 'Custo de infra': infra, 'Meses de obra': mesesObra,\n  'Meses de venda': mesesVenda, 'Taxa-alvo anual': taxa, 'Email': email || null,\n};\nconst missing = Object.entries(obrig)\n  .filter(([, v]) => v === null || v === '')\n  .map(([k]) => k);\n\nconst custos = {\n  comissao_pct: pct(row['Comissão (%)'], 0.06),\n  impostos_pct: pct(row['Impostos (%)'], 0.04),\n  marketing_pct: pct(row['Marketing (%)'], 0.03),\n  admin_mensal: def(num(row['Admin mensal (R$)']), 0),\n  licenciamento: def(num(row['Licenciamento (R$)']), 0),\n};\nconst nParcelas = def(num(row['Parcelas']), 12);\nconst mesInicio = def(num(row['Início das vendas (mês)']), 6);\nconst testada = def(num(row['Testada (m)']), area ? Math.max(5, Math.round(Math.sqrt(area))) : 10);\n\nconst payload = {\n  terreno: { setor, quadra, area_lote_m2: area, testada },\n  projeto: {\n    n_lotes: nLotes ? Math.round(nLotes) : null,\n    custo_gleba: gleba,\n    custo_infra: infra ? { minimo: infra * 0.8, moda: infra, maximo: infra * 1.4 } : null,\n    meses_obra: mesesObra ? Math.round(mesesObra) : null,\n    meses_vendas: mesesVenda\n      ? { minimo: Math.max(1, Math.round(mesesVenda * 0.5)), moda: Math.round(mesesVenda), maximo: Math.round(mesesVenda * 2) }\n      : null,\n    n_parcelas: Math.round(nParcelas),\n    taxa_alvo_anual: taxa,\n    custos,\n    mes_inicio_vendas: Math.round(mesInicio),\n  },\n  n_sims: 5000,\n  incluir_distribuicao: false,\n};\n\nreturn { setor, quadra, email, taxa_alvo_anual: taxa, missing, payload };"
+      },
+      "id": "montar-payload",
+      "name": "Montar payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        460,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.missing.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "validar-campos",
+      "name": "Validar campos",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        680,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "loteia@example.com",
+        "toEmail": "={{ $json.email }}",
+        "subject": "LoteIA — faltam dados para a análise",
+        "emailFormat": "text",
+        "text": "=Olá! Não foi possível analisar o terreno porque faltam campos obrigatórios: {{ $json.missing.join(', ') }}.\n\nPreencha o formulário novamente com esses dados. Obrigado."
+      },
+      "id": "avisar-dados-faltantes",
+      "name": "Avisar dados faltantes",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        900,
+        560
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "2",
+          "name": "SMTP (configurar)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.API_BASE_URL || 'http://localhost:8000' }}/quadra/{{ $json.setor }}/{{ $json.quadra }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "validar-localizacao",
+      "name": "Validar localização",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "typeValidation": "loose"
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.statusCode }}",
+              "rightValue": 200,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "id": "quadra-encontrada",
+      "name": "Quadra encontrada",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "loteia@example.com",
+        "toEmail": "={{ $('Montar payload').item.json.email }}",
+        "subject": "LoteIA — setor/quadra não localizados",
+        "emailFormat": "text",
+        "text": "=Não localizamos o setor {{ $('Montar payload').item.json.setor }} / quadra {{ $('Montar payload').item.json.quadra }} no cadastro de São Paulo. Confira os 3 dígitos de cada um e tente novamente."
+      },
+      "id": "avisar-local-invalido",
+      "name": "Avisar local invalido",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1340,
+        480
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "2",
+          "name": "SMTP (configurar)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.API_BASE_URL || 'http://localhost:8000' }}/viabilidade",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Montar payload').item.json.payload) }}"
+      },
+      "id": "analisar-viabilidade",
+      "name": "Analisar viabilidade",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1340,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "language": "javaScript",
+        "jsCode": "// Monta o veredito a partir da resposta de /viabilidade.\nconst r = $json;\nconst m = $('Montar payload').item.json;\nconst prob = Math.round((r.prob_viavel ?? 0) * 100);\nconst faixa = r.faixa_preco_m2 || {};\nconst sens = (r.sensibilidade && r.sensibilidade[0]) ? r.sensibilidade[0].variavel : '—';\nconst nomes = {\n  preco_lote: 'preço de venda do lote',\n  custo_infra: 'custo de infraestrutura',\n  meses_vendas: 'velocidade de absorção',\n};\nconst sensTxt = nomes[sens] || sens;\nconst taxaPct = Math.round((m.taxa_alvo_anual || 0) * 100);\nconst brl = (v) => 'R$ ' + Math.round(v).toLocaleString('pt-BR');\nconst veredito =\n  `Terreno setor ${m.setor} / quadra ${m.quadra}: ${prob}% de chance de superar a meta de ${taxaPct}% a.a. ` +\n  `Resultado mais sensível a ${sensTxt}. ` +\n  `Faixa de preço estimada: ${brl(faixa.inf)}–${brl(faixa.sup)}/m² (mediana ${brl(faixa.med)}).`;\nreturn {\n  ...m, prob_viavel: r.prob_viavel, prob_pct: prob, faixa_preco_m2: faixa,\n  mais_sensivel: sensTxt, tir_p50: r.tir_anual ? r.tir_anual.p50 : null, veredito,\n};"
+      },
+      "id": "formatar-relatorio",
+      "name": "Formatar relatório",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1560,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "SUA_PLANILHA_DE_RESULTADOS",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Resultados",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "setor": "={{ $json.setor }}",
+            "quadra": "={{ $json.quadra }}",
+            "prob_viavel": "={{ $json.prob_pct }}",
+            "preco_med_m2": "={{ $json.faixa_preco_m2.med }}",
+            "mais_sensivel": "={{ $json.mais_sensivel }}",
+            "veredito": "={{ $json.veredito }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "gravar-na-planilha",
+      "name": "Gravar na planilha",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1780,
+        220
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "1",
+          "name": "Google Sheets (configurar)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fromEmail": "loteia@example.com",
+        "toEmail": "={{ $json.email }}",
+        "subject": "=LoteIA — análise de viabilidade do terreno (setor {{ $json.setor }}/{{ $json.quadra }})",
+        "emailFormat": "text",
+        "text": "={{ $json.veredito }}\n\nRelatório completo: https://docs.google.com/spreadsheets/d/SUA_PLANILHA_DE_RESULTADOS\n\n— LoteIA (simulação probabilística; resultado é uma probabilidade, não garantia)."
+      },
+      "id": "enviar-email-ao-solicitante",
+      "name": "Enviar email ao solicitante",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2000,
+        220
+      ],
+      "credentials": {
+        "smtp": {
+          "id": "2",
+          "name": "SMTP (configurar)"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Nova resposta do Form": {
+      "main": [
+        [
+          {
+            "node": "Montar payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar payload": {
+      "main": [
+        [
+          {
+            "node": "Validar campos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar campos": {
+      "main": [
+        [
+          {
+            "node": "Validar localização",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avisar dados faltantes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validar localização": {
+      "main": [
+        [
+          {
+            "node": "Quadra encontrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Quadra encontrada": {
+      "main": [
+        [
+          {
+            "node": "Analisar viabilidade",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Avisar local invalido",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analisar viabilidade": {
+      "main": [
+        [
+          {
+            "node": "Formatar relatório",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar relatório": {
+      "main": [
+        [
+          {
+            "node": "Gravar na planilha",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gravar na planilha": {
+      "main": [
+        [
+          {
+            "node": "Enviar email ao solicitante",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}
