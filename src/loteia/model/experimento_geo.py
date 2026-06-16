@@ -2,7 +2,8 @@
 modelo de preço?
 
 CRITÉRIO DE SUCESSO (definido ANTES de rodar): o modelo enriquecido deve reduzir
-o MAE no teste temporal (2024) em pelo menos 5% frente ao modelo de 3 features.
+o MAE no teste temporal em pelo menos 5% frente ao modelo de 3 features. O holdout
+acompanha o corte global (hoje 2025, o ano mais novo e fechado; ver ANO_CORTE_TREINO).
 Resultado negativo bem documentado também é entrega válida.
 """
 import pandas as pd
@@ -25,7 +26,7 @@ from loteia.model.train import (
 )
 
 
-def montar_dataset_enriquecido(anos: tuple[int, ...] = (2023, 2024)) -> pd.DataFrame:
+def montar_dataset_enriquecido(anos: tuple[int, ...] = (2023, 2024, 2025)) -> pd.DataFrame:
     """Terrenos limpos + features geoespaciais, cacheado em data/processed."""
     from loteia.data.download import ler_ano
     from loteia.data.geo import (

@@ -56,7 +56,7 @@ def calcular_preco_m2(df: pd.DataFrame) -> pd.DataFrame:
 if __name__ == "__main__":
     from loteia.data.download import ler_ano
 
-    anos = [int(a) for a in sys.argv[1:]] if len(sys.argv) > 1 else [2023, 2024]
+    anos = [int(a) for a in sys.argv[1:]] if len(sys.argv) > 1 else [2023, 2024, 2025]
     df = pd.concat([ler_ano(a) for a in anos], ignore_index=True)
     terrenos = filtrar_terrenos(df)
     preco = calcular_preco_m2(terrenos)

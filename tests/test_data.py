@@ -2,7 +2,32 @@
 import pandas as pd
 import pytest
 
+from loteia.data.download import ITBI_COLS, _alinhar_colunas
 from loteia.data.join import calcular_preco_m2, filtrar_terrenos, norm_sql10
+
+
+class TestAlinharColunas:
+    """As abas mensais variam de ano: 2023/24 sem cabeçalho e 28 colunas; 2025 com
+    linha de cabeçalho e, em alguns meses, uma coluna-lixo a mais ('Unnamed: 28').
+    O alinhador deve manter as 28 colunas posicionais SEM deslocar os campos."""
+
+    def test_renomeia_28_colunas_na_ordem(self):
+        out = _alinhar_colunas(pd.DataFrame([list(range(28))]))
+        assert list(out.columns) == ITBI_COLS
+        assert out["sql_raw"].iloc[0] == 0  # col 0 é o SQL
+
+    def test_descarta_coluna_lixo_ao_fim_sem_deslocar(self):
+        # 29 colunas (col 28 = lixo): o SQL continua na col 0 e o mapeamento
+        # posicional permanece intacto (regressão do bug de shift no 2025).
+        out = _alinhar_colunas(pd.DataFrame([list(range(29))]))
+        assert out.shape[1] == 28
+        assert list(out.columns) == ITBI_COLS
+        assert out["sql_raw"].iloc[0] == 0
+        assert out["area_construida_itbi"].iloc[0] == 22  # índice 22, não deslocado
+
+    def test_menos_de_28_colunas_levanta(self):
+        with pytest.raises(ValueError):
+            _alinhar_colunas(pd.DataFrame([list(range(20))]))
 
 
 class TestNormSql10:

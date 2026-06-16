@@ -16,7 +16,7 @@ empreendimento superar a rentabilidade-alvo**. Projeto final da disciplina LIA.
 ## Comandos
 - `uv sync` — instala as deps **e** o pacote `loteia` (editável). Exige a seção
   `[build-system]` no pyproject; sem ela `import loteia` falha e todo `make` quebra.
-- `make data` — baixa e processa ITBI de SP (2023/24) → parquet em `data/interim`
+- `make data` — baixa e processa ITBI de SP (2023/24/25) → parquet em `data/interim`
 - `make geo` — baixa quadras (GeoSampa WFS), POIs (OSM), renda (IBGE) e
   zoneamento → caches em `data/interim` (Camada 5)
 - `make train` — treina o modelo pontual + o quantílico (gera `models/*.joblib`)
@@ -46,9 +46,11 @@ empreendimento superar a rentabilidade-alvo**. Projeto final da disciplina LIA.
    "sucesso do empreendimento" NUNCA são alvo de ML — são *calculados* (fluxo de
    caixa) e *simulados* (Monte Carlo). Não existe dado público de resultado de
    empreendimento; não invente um alvo.
-2. **Validação separada por TEMPO.** Treinar com transações ≤2023 e testar com
-   ≥2024. Nunca embaralhar aleatoriamente no tempo — isso é vazamento temporal e
-   destrói a defensabilidade.
+2. **Validação separada por TEMPO (walk-forward).** Treinar com transações até o
+   ano de corte (`ANO_CORTE_TREINO`, hoje 2024 = 2023+2024) e testar no ano mais
+   novo e fechado (hoje 2025). Ao surgir um ano novo, o corte avança e o anterior
+   vira treino. Nunca embaralhar aleatoriamente no tempo — isso é vazamento
+   temporal e destrói a defensabilidade.
 3. **Isolar terrenos** (área construída ≈ 0) ANTES de calcular preço/m². Imóvel com
    construção não é terra pura e contamina o alvo.
 4. **Só dado público.** ITBI/IPTU de SP, GeoSampa, IBGE, OpenStreetMap. NUNCA usar

@@ -39,6 +39,23 @@ class TestSplitTemporal:
         train, test = split_temporal(df, ano_corte=2023)
         assert len(train) + len(test) == len(df)
 
+    def test_corte_padrao_treina_ate_2024_testa_2025(self):
+        # walk-forward: ao incluir 2025, o corte global avança para 2024 —
+        # treino = 2023+2024, teste = 2025. Nenhum ano é descartado.
+        from loteia.config import ANO_CORTE_TREINO
+
+        assert ANO_CORTE_TREINO == 2024
+        df = pd.DataFrame({
+            "setor": ["010"] * 6,
+            "area_terreno_itbi": [300.0] * 6,
+            "testada": [10.0] * 6,
+            "ano": [2023, 2023, 2024, 2024, 2025, 2025],
+            "preco_m2": [800.0] * 6,
+        })
+        train, test = split_temporal(df)  # usa o corte global
+        assert set(train["ano"]) == {2023, 2024}
+        assert set(test["ano"]) == {2025}
+
 
 class TestBaselineMedianaSetor:
     def test_prediz_mediana_do_setor(self):

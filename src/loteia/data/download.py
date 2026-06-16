@@ -11,7 +11,17 @@ from loteia.config import DATA_INTERIM, DATA_RAW
 ITBI_URLS: dict[int, str] = {
     2023: "https://www.prefeitura.sp.gov.br/cidade/secretarias/upload/fazenda/arquivos/XLSX/GUIAS-DE-ITBI-PAGAS-2023.xlsx",
     2024: "https://prefeitura.sp.gov.br/cidade/secretarias/upload/fazenda/arquivos/itbi/GUIAS-DE-ITBI-PAGAS-2024.xlsx",
+    # Consolidação anual de 2025 (publicada em 28/01/2026; o nome do arquivo na
+    # fonte carrega essa data e espaços %-encodados). Salvo localmente como
+    # ...-2025.xlsx (o nome de destino independe do nome da origem).
+    2025: "https://prefeitura.sp.gov.br/cidade/secretarias/upload/fazenda/arquivos/itbi/GUIAS%20DE%20ITBI%20PAGAS%20%2828012026%29%20XLS.xlsx",
 }
+
+# Anos antigos existem na fonte, mas embutem a ÁREA de um snapshot tardio; usá-los
+# direto enviesa o alvo de terreno (regra 3). Só entram via TPCL ano-alinhado
+# (ver loteia.data.tpcl). URLs verificadas, deixadas documentadas para essa fase:
+#   2019/2020/2021: .../itbi/ITBI_Setembro_2022/GUIAS_DE_ITBI_PAGAS_(<ano>).xlsx
+#   2022:           .../XLSX/GUIAS_DE_ITBI_PAGAS_12-2022.xlsx
 
 # Layout posicional das abas mensais (sem header) — fonte: aba EXPLICAÇÕES do xlsx.
 ITBI_COLS: list[str] = [
@@ -34,6 +44,25 @@ _UA = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 )
+
+
+def _alinhar_colunas(bruto: pd.DataFrame) -> pd.DataFrame:
+    """Alinha uma aba mensal ao layout posicional de 28 colunas (ITBI_COLS).
+
+    Os arquivos variam por ano: 2023/24 não têm cabeçalho e têm exatamente 28
+    colunas; 2025 traz uma linha de cabeçalho e, em alguns meses, uma coluna-lixo
+    a mais ao final ('Unnamed: 28'). O SQL é sempre a coluna 0 e o excedente é
+    sempre ao fim — então mantemos as 28 primeiras colunas (o contrato posicional
+    da fonte) e renomeamos. A eventual linha de cabeçalho cai depois, no filtro
+    que exige SQL numérico.
+    """
+    if bruto.shape[1] < len(ITBI_COLS):
+        raise ValueError(
+            f"aba com {bruto.shape[1]} colunas (<{len(ITBI_COLS)}); layout inesperado"
+        )
+    out = bruto.iloc[:, : len(ITBI_COLS)].copy()
+    out.columns = ITBI_COLS
+    return out
 
 
 def baixar_itbi(ano: int) -> Path:
@@ -68,7 +97,7 @@ def ler_ano(ano: int) -> pd.DataFrame:
     meses = [s for s in xls.sheet_names if re.fullmatch(r"[A-Z]{3}-\d{4}", str(s))]
     frames = []
     for m in meses:
-        d = pd.read_excel(xls, sheet_name=m, header=None, names=ITBI_COLS)
+        d = _alinhar_colunas(pd.read_excel(xls, sheet_name=m, header=None))
         d["mes_aba"] = m
         frames.append(d)
 

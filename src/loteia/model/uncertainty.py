@@ -102,7 +102,8 @@ if __name__ == "__main__":
     cob = cobertura_empirica(modelo, test)
     pred = modelo.predict_intervalo(test)
     largura = (pred["preco_m2_sup"] - pred["preco_m2_inf"]).median()
-    print(f"cobertura nominal 80% | empírica no teste (2024): {cob:.1%}")
+    anos_teste = "+".join(str(a) for a in sorted(test["ano"].unique()))
+    print(f"cobertura nominal 80% | empírica no teste ({anos_teste}): {cob:.1%}")
     print(f"largura mediana do intervalo: R$ {largura:,.0f}/m²")
 
     salvar_artefato(
