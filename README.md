@@ -6,7 +6,7 @@ Veja CLAUDE.md para contexto, comandos e regras do projeto.
 
 ```bash
 uv sync          # dependências
-make data        # ITBI 2023/24 → parquet
+make data        # ITBI 2023/24/25 → parquet
 make geo         # quadras (GeoSampa) + OSM + renda IBGE
 make train       # modelo pontual + quantílico (artefatos em models/)
 make api         # FastAPI em localhost:8000
