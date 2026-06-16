@@ -12,7 +12,6 @@ from matplotlib.ticker import FuncFormatter
 
 from loteia.report import (
     payload_de_params,
-    resumo_respostas,
     tem_params_relatorio,
 )
 
@@ -104,12 +103,13 @@ def _histograma(valores, titulo, alvo=None, formato="moeda", rotulo_alvo="meta")
     plt.close(fig)
 
 
-def _faixa(rotulo: str, minimo: float, moda: float, maximo: float, passo: float):
+def _faixa(rotulo: str, minimo: float, moda: float, maximo: float, passo: float,
+           disabled: bool = False):
     c1, c2, c3 = st.columns(3)
     return (
-        c1.number_input(f"{rotulo} (mín)", value=minimo, step=passo),
-        c2.number_input(f"{rotulo} (moda)", value=moda, step=passo),
-        c3.number_input(f"{rotulo} (máx)", value=maximo, step=passo),
+        c1.number_input(f"{rotulo} (mín)", value=minimo, step=passo, disabled=disabled),
+        c2.number_input(f"{rotulo} (moda)", value=moda, step=passo, disabled=disabled),
+        c3.number_input(f"{rotulo} (máx)", value=maximo, step=passo, disabled=disabled),
     )
 
 
@@ -119,7 +119,7 @@ def _render_relatorio(corpo: dict):
     prob = corpo["prob_viavel"]
     faixa = corpo["faixa_preco_m2"]
     m1, m2, m3, m4 = st.columns(4)
-    m1.metric("P(superar a taxa-alvo)", f"{prob:.0%}")
+    m1.metric("Probabilidade de superar a taxa-alvo", f"{prob:.0%}")
     m2.metric("Preço/m² (10%)", f"R$ {faixa['inf']:,.0f}")
     m3.metric("Preço/m² (mediana)", f"R$ {faixa['med']:,.0f}")
     m4.metric("Preço/m² (90%)", f"R$ {faixa['sup']:,.0f}")
@@ -128,6 +128,20 @@ def _render_relatorio(corpo: dict):
         "preco_lote": "Preço de venda do lote",
         "custo_infra": "Custo de infraestrutura",
         "meses_vendas": "Velocidade de venda",
+    }
+    # rótulos legíveis para as features cruas do modelo (gráfico SHAP);
+    # fallback para o nome cru caso surja uma feature nova não mapeada
+    _NOMES_FEATURE = {
+        "dist_centro": "Distância ao centro",
+        "dist_estacao": "Distância até a estação mais próxima",
+        "area_terreno_itbi": "Área do terreno (m²)",
+        "x": "Coordenada leste (X)",
+        "y": "Coordenada norte (Y)",
+        "n_escola_1km": "Escolas em 1 km",
+        "zona": "Zoneamento",
+        "n_comercio_1km": "Comércios em 1 km",
+        "testada": "Frente do lote (m)",
+        "renda_setor": "Renda média da região (IBGE)",
     }
 
     dist = corpo.get("distribuicoes")
@@ -159,7 +173,8 @@ def _render_relatorio(corpo: dict):
             contrib = corpo["fatores_shap"]["contribuicoes"]
             total = sum(abs(v) for v in contrib.values()) or 1
             ordem = sorted(contrib, key=lambda k: abs(contrib[k]))
-            _barras_horizontais(ordem, [contrib[k] for k in ordem],
+            rotulos = [_NOMES_FEATURE.get(k, k) for k in ordem]
+            _barras_horizontais(rotulos, [contrib[k] for k in ordem],
                                 "O que explica o preço do terreno",
                                 lambda v: f"{v / total * 100:+.0f}%")
             st.caption("Peso de cada fator na estimativa do preço/m² (verde puxa "
@@ -174,17 +189,50 @@ if tem_params_relatorio(_params):
     st.subheader(f"Relatório de viabilidade — {emp}" if emp
                  else "Relatório de viabilidade")
 
-    # painel read-only com as respostas do cliente (vindas do Form)
-    st.markdown("##### Dados do empreendimento")
-    itens = resumo_respostas(_params)
-    for inicio in range(0, len(itens), 4):
-        cols = st.columns(4)
-        for col, (rotulo, valor) in zip(cols, itens[inicio:inicio + 4]):
-            col.metric(rotulo, valor)
+    # painel read-only: mesmo layout do make front, porém com os campos
+    # desabilitados e preenchidos com os dados do cliente vindos da URL (Form → n8n)
+    def _f(chave: str, default: float = 0.0) -> float:
+        v = _params.get(chave)
+        return float(v) if v not in (None, "") else float(default)
 
-    loc = _quadra_latlon(setor_r, quadra_r)
-    if loc:
-        st.map(pd.DataFrame({"lat": [loc["lat"]], "lon": [loc["lon"]]}), zoom=13)
+    with st.expander("📋 Dados do empreendimento", expanded=True):
+        t1, t2, t3 = st.columns(3)
+        t1.text_input("Setor fiscal", value=setor_r, disabled=True)
+        t2.text_input("Quadra fiscal", value=quadra_r, disabled=True)
+        t3.number_input("Testada (m)", value=_f("testada", 10), disabled=True)
+
+        j1, j2 = st.columns(2)
+        j1.number_input("Área do lote (m²)", value=_f("area_lote_m2"), disabled=True)
+        j2.number_input("Nº de lotes", value=int(_f("n_lotes")), disabled=True)
+
+        p1, p2 = st.columns(2)
+        p1.number_input("Custo da gleba (R$)", value=_f("custo_gleba"), disabled=True)
+        p2.number_input("Meses de obra", value=int(_f("meses_obra")), disabled=True)
+
+        _faixa("Custo de infra (R$)", _f("infra_min"), _f("infra_moda"),
+               _f("infra_max"), 1e6, disabled=True)
+        _faixa("Meses de venda", _f("vendas_min"), _f("vendas_moda"),
+               _f("vendas_max"), 6.0, disabled=True)
+
+        st.markdown("**Custos operacionais**")
+        d1, d2, d3, d4, d5 = st.columns(5)
+        d1.number_input("Comissão %VGV", value=_f("comissao_pct"), disabled=True,
+                        format="%.2f")
+        d2.number_input("Impostos %VGV", value=_f("impostos_pct"), disabled=True,
+                        format="%.2f")
+        d3.number_input("Marketing %VGV", value=_f("marketing_pct"), disabled=True,
+                        format="%.2f")
+        d4.number_input("Admin mensal (R$)", value=_f("admin_mensal"), disabled=True)
+        d5.number_input("Licenciamento (R$)", value=_f("licenciamento"), disabled=True)
+
+        st.markdown("**Meta e cronograma de vendas**")
+        s1, s2, s3 = st.columns(3)
+        s1.number_input("Parcelas por venda", value=int(_f("n_parcelas", 1)),
+                        disabled=True)
+        s2.number_input("Mês início vendas", value=int(_f("mes_inicio_vendas", 1)),
+                        disabled=True)
+        s3.number_input("Taxa-alvo anual", value=_f("taxa_alvo_anual"), disabled=True,
+                        format="%.2f")
 
     st.divider()
     st.markdown("##### Resultado da análise")
@@ -206,8 +254,10 @@ with st.sidebar:
     st.subheader("Mercado")
     rho_mercado = st.slider(
         "Correlação preço↔absorção", 0.0, 0.95, 0.5, 0.05,
-        help="Mercado quente: preço alto coincide com venda rápida. "
-        "0 = inputs independentes; mais alto = caudas conjuntas mais realistas.",
+        help="É uma CORRELAÇÃO (acoplamento), não o nível de vendas: liga preço e "
+        "velocidade de venda na simulação. 0 = sorteados de forma independente; "
+        ">0 = mercado quente (preço alto coincide com venda rápida), gerando "
+        "caudas conjuntas mais realistas.",
     )
 
     local = _quadra_latlon(setor, quadra)
@@ -220,34 +270,47 @@ with st.sidebar:
     else:
         st.warning("Quadra não localizada (confira setor/quadra ou suba a API).")
 
+# ---------- premissas comuns às duas abas (fora dos formulários) ----------
+# Definidas uma única vez: as duas abas (Viabilidade e Otimizador) leem estas
+# variáveis, garantindo o mesmo empreendimento nas duas análises.
+with st.expander("⚙️ Premissas comuns — valem para as duas abas", expanded=True):
+    p1, p2 = st.columns(2)
+    custo_gleba = p1.number_input("Custo da gleba (R$)", value=60_000_000.0, step=1e6)
+    meses_obra = p2.number_input("Meses de obra", value=18, step=1)
+
+    infra = _faixa("Custo de infra (R$)", 15e6, 20e6, 28e6, 1e6)
+
+    st.markdown("**Custos operacionais**")
+    d1, d2, d3, d4, d5 = st.columns(5)
+    comissao = d1.number_input("Comissão %VGV", value=0.06, step=0.01, format="%.2f")
+    impostos = d2.number_input("Impostos %VGV", value=0.04, step=0.01, format="%.2f")
+    marketing = d3.number_input("Marketing %VGV", value=0.03, step=0.01, format="%.2f")
+    admin = d4.number_input("Admin mensal (R$)", value=30_000.0, step=10_000.0)
+    licenciamento = d5.number_input("Licenciamento (R$)", value=500_000.0, step=100_000.0)
+
+    st.markdown("**Meta e cronograma de vendas**")
+    s1, s2, s3 = st.columns(3)
+    n_parcelas = s1.number_input("Parcelas por venda", value=24, step=6)
+    mes_inicio = s2.number_input("Mês início vendas", value=6, step=1, min_value=1)
+    taxa_alvo = s3.number_input("Taxa-alvo anual", value=0.18, step=0.01, format="%.2f")
+
 aba_viab, aba_otim = st.tabs(["Viabilidade", "Otimizador de configuração"])
 
 # ---------------- aba 1: viabilidade ----------------
 with aba_viab:
     with st.form("form_viabilidade"):
         st.subheader("Projeto")
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns(3)
         area_lote = c1.number_input("Área do lote (m²)", value=300.0, step=50.0)
         n_lotes = c2.number_input("Nº de lotes", value=100, step=10)
-        custo_gleba = c3.number_input("Custo da gleba (R$)", value=60_000_000.0, step=1e6)
-        meses_obra = c4.number_input("Meses de obra", value=18, step=1)
+        n_sims = c3.number_input("Simulações", value=5_000, step=1_000)
 
-        infra = _faixa("Custo de infra (R$)", 15e6, 20e6, 28e6, 1e6)
         vendas = _faixa("Meses de venda", 12.0, 24.0, 48.0, 6.0)
-
-        st.markdown("**Custos operacionais**")
-        d1, d2, d3, d4, d5 = st.columns(5)
-        comissao = d1.number_input("Comissão %VGV", value=0.06, step=0.01, format="%.2f")
-        impostos = d2.number_input("Impostos %VGV", value=0.04, step=0.01, format="%.2f")
-        marketing = d3.number_input("Marketing %VGV", value=0.03, step=0.01, format="%.2f")
-        admin = d4.number_input("Admin mensal (R$)", value=30_000.0, step=10_000.0)
-        licenciamento = d5.number_input("Licenciamento (R$)", value=500_000.0, step=100_000.0)
-
-        c5, c6, c7, c8 = st.columns(4)
-        n_parcelas = c5.number_input("Parcelas por venda", value=24, step=6)
-        mes_inicio = c6.number_input("Mês início vendas", value=6, step=1, min_value=1)
-        taxa_alvo = c7.number_input("Taxa-alvo anual", value=0.18, step=0.01, format="%.2f")
-        n_sims = c8.number_input("Simulações", value=5_000, step=1_000)
+        st.caption("Velocidade de venda como **duração** (meses até vender tudo) — "
+                   "mesmo conceito da 'Velocidade de venda' do otimizador, lá "
+                   "expressa como taxa (lotes/mês).")
+        st.caption("Custos, infra, gleba, obra e meta vêm das **Premissas comuns** "
+                   "acima.")
 
         rodar = st.form_submit_button("Simular viabilidade", type="primary")
 
@@ -289,31 +352,17 @@ with aba_viab:
 with aba_otim:
     with st.form("form_otimizar"):
         st.subheader("Gleba")
-        c1, c2, c3 = st.columns(3)
+        c1, c2 = st.columns(2)
         area_vendavel = c1.number_input("Área vendável (m²)", value=30_000.0, step=5_000.0)
-        custo_gleba_o = c2.number_input("Custo da gleba (R$) ", value=60_000_000.0, step=1e6)
-        meses_obra_o = c3.number_input("Meses de obra ", value=18, step=1)
+        n_sims_o = c2.number_input("Simulações ", value=3_000, step=1_000)
 
         candidatos = st.text_input(
             "Tamanhos de lote candidatos (m², separados por vírgula)",
             value="150, 250, 400, 600",
         )
-        infra_o = _faixa("Custo de infra (R$) ", 15e6, 20e6, 28e6, 1e6)
-        absorcao = _faixa("Absorção (lotes/mês)", 2.0, 5.0, 10.0, 1.0)
-
-        st.markdown("**Custos operacionais**")
-        e1, e2, e3, e4, e5 = st.columns(5)
-        comissao_o = e1.number_input("Comissão %VGV ", value=0.06, step=0.01, format="%.2f")
-        impostos_o = e2.number_input("Impostos %VGV ", value=0.04, step=0.01, format="%.2f")
-        marketing_o = e3.number_input("Marketing %VGV ", value=0.03, step=0.01, format="%.2f")
-        admin_o = e4.number_input("Admin mensal (R$) ", value=30_000.0, step=10_000.0)
-        licenciamento_o = e5.number_input("Licenciamento (R$) ", value=500_000.0, step=100_000.0)
-
-        c4, c5, c6, c7 = st.columns(4)
-        n_parcelas_o = c4.number_input("Parcelas por venda ", value=24, step=6)
-        mes_inicio_o = c5.number_input("Mês início vendas ", value=6, step=1, min_value=1)
-        taxa_alvo_o = c6.number_input("Taxa-alvo anual ", value=0.18, step=0.01, format="%.2f")
-        n_sims_o = c7.number_input("Simulações ", value=3_000, step=1_000)
+        absorcao = _faixa("Velocidade de venda (lotes/mês)", 2.0, 5.0, 10.0, 1.0)
+        st.caption("Custos, infra, gleba, obra e meta vêm das **Premissas comuns** "
+                   "acima.")
 
         rodar_o = st.form_submit_button("Otimizar configuração", type="primary")
 
@@ -331,21 +380,21 @@ with aba_otim:
                     "gleba": {
                         "area_vendavel_m2": area_vendavel,
                         "candidatos_area_lote": lista_candidatos,
-                        "custo_gleba": custo_gleba_o,
-                        "custo_infra": dict(zip(("minimo", "moda", "maximo"), infra_o)),
-                        "meses_obra": int(meses_obra_o),
+                        "custo_gleba": custo_gleba,
+                        "custo_infra": dict(zip(("minimo", "moda", "maximo"), infra)),
+                        "meses_obra": int(meses_obra),
                         "absorcao_lotes_mes": dict(
                             zip(("minimo", "moda", "maximo"), absorcao)
                         ),
-                        "taxa_alvo_anual": taxa_alvo_o,
-                        "n_parcelas": int(n_parcelas_o),
-                        "mes_inicio_vendas": int(mes_inicio_o),
+                        "taxa_alvo_anual": taxa_alvo,
+                        "n_parcelas": int(n_parcelas),
+                        "mes_inicio_vendas": int(mes_inicio),
                         "custos": {
-                            "comissao_pct": comissao_o,
-                            "impostos_pct": impostos_o,
-                            "marketing_pct": marketing_o,
-                            "admin_mensal": admin_o,
-                            "licenciamento": licenciamento_o,
+                            "comissao_pct": comissao,
+                            "impostos_pct": impostos,
+                            "marketing_pct": marketing,
+                            "admin_mensal": admin,
+                            "licenciamento": licenciamento,
                         },
                     },
                     "n_sims": int(n_sims_o),
