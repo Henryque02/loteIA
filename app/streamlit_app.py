@@ -181,6 +181,44 @@ def _render_relatorio(corpo: dict):
                        "para cima, vermelho para baixo).")
 
 
+def _render_otimizacao(corpo: dict):
+    """Renderiza o ranking do otimizador (métrica + tabela + barras). Usado pela
+    aba Otimizador e pelo comparativo opcional do modo relatório."""
+    ranking = pd.DataFrame(corpo["configuracoes"])
+    melhor = ranking.iloc[0]
+    st.metric(
+        "Melhor configuração",
+        f"lotes de {melhor['area_lote_m2']:.0f} m² "
+        f"({melhor['n_lotes']:.0f} lotes)",
+        f"P(viável) = {melhor['prob_viavel']:.0%}",
+    )
+    st.dataframe(
+        ranking.style.format(
+            {
+                "area_lote_m2": "{:.0f}",
+                "n_lotes": "{:.0f}",
+                "prob_viavel": "{:.1%}",
+                "vpl_mediano": "R$ {:,.0f}",
+                "tir_anual_mediana": "{:.1%}",
+            },
+            na_rep="—",
+        ),
+        use_container_width=True,
+    )
+    fig, ax = plt.subplots(figsize=(6, 3))
+    ax.bar(
+        ranking["area_lote_m2"].astype(int).astype(str) + " m²",
+        ranking["prob_viavel"],
+        color="#1f77b4",
+    )
+    ax.set_ylabel("P(viável)")
+    ax.set_ylim(0, 1)
+    ax.set_title("Probabilidade de viabilidade por tamanho de lote")
+    fig.tight_layout()
+    st.pyplot(fig)
+    plt.close(fig)
+
+
 # ---------------- modo relatório (link do n8n) ----------------
 _params = st.query_params
 if tem_params_relatorio(_params):
@@ -241,6 +279,59 @@ if tem_params_relatorio(_params):
         _render_relatorio(corpo)
     st.caption("Resultado probabilístico (simulação de Monte Carlo) — não é "
                "garantia de resultado do empreendimento.")
+
+    # comparativo opcional (highest-and-best-use) rodado SÓ ao clicar — não pesa
+    # o carregamento inicial. Inputs do otimizador derivados do próprio projeto.
+    st.divider()
+    area_lote_cli = _f("area_lote_m2")
+    n_lotes_cli = int(_f("n_lotes")) or 1
+    v_min, v_moda, v_max = _f("vendas_min"), _f("vendas_moda"), _f("vendas_max")
+    if st.button("📊 Comparar outros tamanhos de lote"):
+        if not (area_lote_cli and v_min and v_moda and v_max):
+            st.warning("Faltam dados (área do lote ou prazo de vendas) no link "
+                       "para montar o comparativo.")
+        else:
+            # área vendável = área do lote × nº de lotes; candidatos = leque em
+            # torno do tamanho do cliente; absorção (lotes/mês) = nº de lotes ÷
+            # meses de venda (duração curta → absorção alta, daí o min/max invertem)
+            candidatos = sorted({round(area_lote_cli * m)
+                                 for m in (0.5, 0.75, 1.0, 1.5, 2.0)})
+            corpo_otim = _post(
+                "/otimizar",
+                {
+                    "terreno": {"setor": setor_r, "quadra": quadra_r,
+                                "testada": _f("testada", 10)},
+                    "gleba": {
+                        "area_vendavel_m2": area_lote_cli * n_lotes_cli,
+                        "candidatos_area_lote": [float(c) for c in candidatos],
+                        "custo_gleba": _f("custo_gleba"),
+                        "custo_infra": {"minimo": _f("infra_min"),
+                                        "moda": _f("infra_moda"),
+                                        "maximo": _f("infra_max")},
+                        "meses_obra": int(_f("meses_obra")),
+                        "absorcao_lotes_mes": {"minimo": n_lotes_cli / v_max,
+                                               "moda": n_lotes_cli / v_moda,
+                                               "maximo": n_lotes_cli / v_min},
+                        "taxa_alvo_anual": _f("taxa_alvo_anual"),
+                        "n_parcelas": int(_f("n_parcelas", 1)),
+                        "mes_inicio_vendas": int(_f("mes_inicio_vendas", 1)),
+                        "custos": {"comissao_pct": _f("comissao_pct"),
+                                   "impostos_pct": _f("impostos_pct"),
+                                   "marketing_pct": _f("marketing_pct"),
+                                   "admin_mensal": _f("admin_mensal"),
+                                   "licenciamento": _f("licenciamento")},
+                    },
+                    "n_sims": 3000,
+                    "rho_mercado": _f("rho_mercado", 0.5),
+                },
+            )
+            if corpo_otim:
+                st.caption(
+                    f"Comparando o seu lote de **{area_lote_cli:.0f} m²** com "
+                    "outros tamanhos, na mesma gleba e premissas. A velocidade "
+                    "de venda vem do prazo que você informou."
+                )
+                _render_otimizacao(corpo_otim)
     st.stop()
 
 
@@ -402,36 +493,4 @@ with aba_otim:
                 },
             )
             if corpo:
-                ranking = pd.DataFrame(corpo["configuracoes"])
-                melhor = ranking.iloc[0]
-                st.metric(
-                    "Melhor configuração",
-                    f"lotes de {melhor['area_lote_m2']:.0f} m² "
-                    f"({melhor['n_lotes']:.0f} lotes)",
-                    f"P(viável) = {melhor['prob_viavel']:.0%}",
-                )
-                st.dataframe(
-                    ranking.style.format(
-                        {
-                            "area_lote_m2": "{:.0f}",
-                            "n_lotes": "{:.0f}",
-                            "prob_viavel": "{:.1%}",
-                            "vpl_mediano": "R$ {:,.0f}",
-                            "tir_anual_mediana": "{:.1%}",
-                        },
-                        na_rep="—",
-                    ),
-                    use_container_width=True,
-                )
-                fig, ax = plt.subplots(figsize=(6, 3))
-                ax.bar(
-                    ranking["area_lote_m2"].astype(int).astype(str) + " m²",
-                    ranking["prob_viavel"],
-                    color="#1f77b4",
-                )
-                ax.set_ylabel("P(viável)")
-                ax.set_ylim(0, 1)
-                ax.set_title("Probabilidade de viabilidade por tamanho de lote")
-                fig.tight_layout()
-                st.pyplot(fig)
-                plt.close(fig)
+                _render_otimizacao(corpo)
