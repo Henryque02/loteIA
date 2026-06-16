@@ -50,12 +50,42 @@ def _post(rota: str, payload: dict) -> dict | None:
     return r.json()
 
 
+def _viabilidade_cacheada(params) -> dict | None:
+    """Cache leve do /viabilidade no modo relatório: simula uma única vez por
+    link e reusa nos reruns (toggle do mapa, botões) em vez de re-simular a cada
+    interação. Falhas não são cacheadas — tenta de novo no próximo run."""
+    chave = "viab_" + str(sorted(dict(params).items()))
+    corpo = st.session_state.get(chave)
+    if corpo is None:
+        corpo = _post("/viabilidade", payload_de_params(params))
+        if corpo is not None:
+            st.session_state[chave] = corpo
+    return corpo
+
+
 def _quadra_latlon(setor: str, quadra: str) -> dict | None:
     try:
         r = requests.get(f"{API}/quadra/{setor}/{quadra}", timeout=30)
         return r.json() if r.status_code == 200 else None
     except requests.ConnectionError:
         return None
+
+
+def _mapa_toggle(setor: str, quadra: str, key: str, *, mostrar_status: bool = True):
+    """Status da quadra + toggle 'Ver no mapa', recolhido por padrão (sem gap).
+    Ligado, renderiza o mapa; veio em branco (tiles externos do st.map)? desliga
+    e liga de novo para forçar nova tentativa de carregar."""
+    loc = _quadra_latlon(setor, quadra)
+    if mostrar_status:
+        if loc:
+            st.success("Quadra localizada ✔")
+        else:
+            st.warning("Quadra não localizada (confira setor/quadra ou suba a API).")
+    if st.toggle("🗺️ Ver no mapa", key=key):
+        if loc:
+            st.map(pd.DataFrame({"lat": [loc["lat"]], "lon": [loc["lon"]]}), zoom=14)
+        else:
+            st.caption("Localização indisponível para mostrar no mapa.")
 
 
 def _estilo(ax):
@@ -237,7 +267,8 @@ if tem_params_relatorio(_params):
         t1, t2, t3 = st.columns(3)
         t1.text_input("Setor fiscal", value=setor_r, disabled=True)
         t2.text_input("Quadra fiscal", value=quadra_r, disabled=True)
-        t3.number_input("Testada (m)", value=_f("testada", 10), disabled=True)
+        t3.number_input("Frente do lote (m)", value=_f("testada", 10),
+                        disabled=True)
 
         j1, j2 = st.columns(2)
         j1.number_input("Área do lote (m²)", value=_f("area_lote_m2"), disabled=True)
@@ -272,9 +303,11 @@ if tem_params_relatorio(_params):
         s3.number_input("Taxa-alvo anual", value=_f("taxa_alvo_anual"), disabled=True,
                         format="%.2f")
 
+    _mapa_toggle(setor_r, quadra_r, key="mapa_relatorio", mostrar_status=False)
+
     st.divider()
     st.markdown("##### Resultado da análise")
-    corpo = _post("/viabilidade", payload_de_params(_params))
+    corpo = _viabilidade_cacheada(_params)
     if corpo:
         _render_relatorio(corpo)
     st.caption("Resultado probabilístico (simulação de Monte Carlo) — não é "
@@ -335,14 +368,15 @@ if tem_params_relatorio(_params):
     st.stop()
 
 
-# ---------------- sidebar: terreno ----------------
-with st.sidebar:
-    st.header("Terreno")
-    setor = st.text_input("Setor fiscal (3 dígitos)", value="085")
-    quadra = st.text_input("Quadra fiscal (3 dígitos)", value="013")
-    testada = st.number_input("Testada (m)", value=10.0, min_value=1.0, step=1.0)
-    st.divider()
-    st.subheader("Mercado")
+# ---------- terreno + mercado (compartilhado, fora dos formulários) ----------
+# Antes na barra lateral; agora na área principal para as duas abas lerem. Tem
+# de ficar FORA dos st.form, senão o Otimizador não enxergaria os valores.
+with st.expander("📍 Terreno", expanded=True):
+    t1, t2, t3 = st.columns(3)
+    setor = t1.text_input("Setor fiscal (3 dígitos)", value="085")
+    quadra = t2.text_input("Quadra fiscal (3 dígitos)", value="013")
+    testada = t3.number_input("Frente do lote (m)", value=10.0,
+                              min_value=1.0, step=1.0)
     rho_mercado = st.slider(
         "Correlação preço↔absorção", 0.0, 0.95, 0.5, 0.05,
         help="É uma CORRELAÇÃO (acoplamento), não o nível de vendas: liga preço e "
@@ -350,16 +384,7 @@ with st.sidebar:
         ">0 = mercado quente (preço alto coincide com venda rápida), gerando "
         "caudas conjuntas mais realistas.",
     )
-
-    local = _quadra_latlon(setor, quadra)
-    if local:
-        st.success("Quadra localizada ✔")
-        st.map(
-            pd.DataFrame({"lat": [local["lat"]], "lon": [local["lon"]]}),
-            zoom=14,
-        )
-    else:
-        st.warning("Quadra não localizada (confira setor/quadra ou suba a API).")
+    _mapa_toggle(setor, quadra, key="mapa_interativo")
 
 # ---------- premissas comuns às duas abas (fora dos formulários) ----------
 # Definidas uma única vez: as duas abas (Viabilidade e Otimizador) leem estas
