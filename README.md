@@ -158,23 +158,3 @@ API existente.
 
 ---
 
-## Limitações
-
-- **Não há dado público de resultado de empreendimento** — por isso a viabilidade é
-  *calculada e simulada*, nunca prevista por ML.
-- **A cobertura do intervalo cai fora do tempo** — esperado sob deslocamento
-  temporal; recalibrar para "80% redondo" exigiria usar 2025 na calibração, o que
-  seria vazamento.
-- **Escopo:** São Paulo (fontes municipais) e ITBI de 2023–2025. Anos anteriores a
-  2023 ficam de fora porque os arquivos antigos embutem o cadastro *atual*, o que
-  enviesaria o isolamento de terreno (viés de sobrevivência).
-
-Mais perguntas (e respostas) da banca em [docs/LoteIA_Referencia_Tecnica.md](docs/LoteIA_Referencia_Tecnica.md)
-e a visão geral em [docs/apresentacao.md](docs/apresentacao.md).
-
----
-
-## Documentação do projeto
-
-Contexto, comandos e as regras críticas do projeto estão em
-[CLAUDE.md](CLAUDE.md).
