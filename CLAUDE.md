@@ -28,7 +28,7 @@ empreendimento superar a rentabilidade-alvo**. Projeto final da disciplina LIA.
 ## Mapa do repositório
 - `src/loteia/data/` — download, join por **SQL** (= Setor-Quadra-Lote, a chave do
   cadastro; é uma coluna, NÃO banco de dados — junta-se com pandas `merge`),
-  features geoespaciais (`features.py`, `geo.py`) e cadastro ano-alinhado (`tpcl.py`)
+  features geoespaciais (`features.py`, `geo.py`)
 - `src/loteia/model/` — treino, incerteza (C1), explicação SHAP (C3),
   experimento geo (C5, `experimento_geo.py`)
 - `src/loteia/finance/` — fluxo de caixa, Monte Carlo (C2), sensibilidade (C3)

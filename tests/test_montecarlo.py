@@ -6,7 +6,6 @@ from loteia.finance.cashflow import Custos
 from loteia.finance.montecarlo import (
     Incerteza,
     amostrar_mercado_correlacionado,
-    amostrar_preco_efetivo,
     simular_viabilidade,
 )
 
@@ -102,11 +101,6 @@ class TestSimularViabilidade:
         b = _sim(seed=11, rho_mercado=0.0)
         assert np.array_equal(a["vpl"], b["vpl"])
 
-    def test_frac_zero_reproduz_resultado(self):
-        a = _sim(seed=11)
-        b = _sim(seed=11, frac_idiossincratica=0.0)
-        assert np.array_equal(a["vpl"], b["vpl"])
-
 
 class TestMercadoCorrelacionado:
     def test_rho_zero_quase_sem_correlacao(self):
@@ -131,24 +125,3 @@ class TestMercadoCorrelacionado:
         p, m = amostrar_mercado_correlacionado(preco, meses, rho=0.6, n=5_000, rng=rng)
         assert p.min() >= 90_000 and p.max() <= 110_000
         assert m.min() >= 12 and m.max() <= 48
-
-
-class TestPrecoEfetivo:
-    def test_frac_zero_e_a_amostra_sistematica(self):
-        rng1, rng2 = np.random.default_rng(3), np.random.default_rng(3)
-        inc = Incerteza(90_000, 100_000, 110_000)
-        sys = inc.amostrar(rng1, 1000)
-        efetivo = amostrar_preco_efetivo(inc, frac=0.0, n_lotes=50, sistematico=sys, rng=rng2)
-        assert np.allclose(sys, efetivo)
-
-    def test_idiossincratico_diversifica_com_n_lotes(self):
-        # frac>0: o ruído por lote no preço médio encolhe quando há mais lotes
-        inc = Incerteza(80_000, 100_000, 120_000)
-        rng = np.random.default_rng(5)
-        sys = inc.amostrar(rng, 40_000)
-        spread = {}
-        for n in (1, 400):
-            ef = amostrar_preco_efetivo(inc, frac=0.6, n_lotes=n, sistematico=sys,
-                                        rng=np.random.default_rng(9))
-            spread[n] = ef.std()
-        assert spread[400] < spread[1]

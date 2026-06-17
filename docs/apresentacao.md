@@ -201,9 +201,9 @@ o número não foi cozinhado.
   recalibrar para "80% bonito" exigiria usar 2025 na calibração, o que seria vazamento.
 - **Geografia limitada a São Paulo.** As fontes (ITBI, GeoSampa, zoneamento) são
   municipais; estender para outra cidade exige refazer a camada de dados.
-- **Anos anteriores a 2023 ficaram de fora por ora.** Os arquivos antigos de ITBI
+- **Anos anteriores a 2023 ficaram de fora.** Os arquivos antigos de ITBI
   embutem um snapshot cadastral tardio, que enviesaria o isolamento de terreno (viés
-  de sobrevivência). Entram só via cadastro ano-alinhado (TPCL) — trabalho futuro.
+  de sobrevivência).
 
 ---
 

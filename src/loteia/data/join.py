@@ -1,11 +1,6 @@
 """Cruza ITBI x IPTU pela chave SQL (Setor-Quadra-Lote).
 Anexa area_terreno, area_construida e zoneamento a cada transacao.
-
-Decisão de fonte (Fase 1→modelo):
-- Fase 1 (2023/24): usa a área IPTU já embutida no ITBI (cobertura ~100%).
-- Fase do modelo (2019+): trocar para join com o cadastro tabular TPCL
-  ano-alinhado (evita viés de snapshot atual ao classificar terrenos de anos antigos).
-"""
+Usa a área já embutida no próprio ITBI (cobertura ~100%)."""
 import sys
 
 import pandas as pd

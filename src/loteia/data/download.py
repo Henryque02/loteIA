@@ -17,12 +17,6 @@ ITBI_URLS: dict[int, str] = {
     2025: "https://prefeitura.sp.gov.br/cidade/secretarias/upload/fazenda/arquivos/itbi/GUIAS%20DE%20ITBI%20PAGAS%20%2828012026%29%20XLS.xlsx",
 }
 
-# Anos antigos existem na fonte, mas embutem a ÁREA de um snapshot tardio; usá-los
-# direto enviesa o alvo de terreno (regra 3). Só entram via TPCL ano-alinhado
-# (ver loteia.data.tpcl). URLs verificadas, deixadas documentadas para essa fase:
-#   2019/2020/2021: .../itbi/ITBI_Setembro_2022/GUIAS_DE_ITBI_PAGAS_(<ano>).xlsx
-#   2022:           .../XLSX/GUIAS_DE_ITBI_PAGAS_12-2022.xlsx
-
 # Layout posicional das abas mensais (sem header) — fonte: aba EXPLICAÇÕES do xlsx.
 ITBI_COLS: list[str] = [
     "sql_raw", "logradouro", "numero", "complemento", "bairro", "referencia",

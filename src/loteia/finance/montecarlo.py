@@ -31,13 +31,6 @@ class Incerteza:
         c = (self.moda - self.minimo) / larg
         return triang.ppf(u, c, loc=self.minimo, scale=larg)
 
-    def desvio_padrao(self) -> float:
-        """Desvio-padrão da triangular (0 se degenerada)."""
-        a, m, b = self.minimo, self.moda, self.maximo
-        if b <= a:
-            return 0.0
-        return float(np.sqrt((a * a + m * m + b * b - a * m - a * b - m * b) / 18.0))
-
 
 def amostrar_mercado_correlacionado(
     preco_lote: Incerteza,
@@ -63,31 +56,6 @@ def amostrar_mercado_correlacionado(
     return precos, meses
 
 
-def amostrar_preco_efetivo(
-    preco_lote: Incerteza,
-    frac: float,
-    n_lotes: int,
-    sistematico: np.ndarray,
-    rng: np.random.Generator,
-) -> np.ndarray:
-    """Decompõe a incerteza de preço em sistemática (nível de mercado, escala
-    todos os lotes) e idiossincrática (ruído por lote, diversifica com n_lotes).
-
-    `sistematico` é a amostra triangular do nível de preço. Para frac=0 devolve
-    exatamente o sistemático (comportamento atual). Para frac>0, a variância
-    total é preservada em n_lotes=1 e o ruído idiossincrático no preço médio
-    encolhe ∝ 1/√n_lotes (o intervalo do CQR é preditivo por lote; sobre o
-    empreendimento, o ruído por lote se dilui).
-    """
-    if frac <= 0.0:
-        return sistematico
-    moda = preco_lote.moda
-    sigma = preco_lote.desvio_padrao()
-    sys = moda + (sistematico - moda) * np.sqrt(1.0 - frac)
-    idio = rng.normal(0.0, sigma * np.sqrt(frac) / np.sqrt(n_lotes), size=len(sistematico))
-    return sys + idio
-
-
 def simular_viabilidade(
     *,
     n_lotes: int,
@@ -101,7 +69,6 @@ def simular_viabilidade(
     custos: Custos = Custos(),
     mes_inicio_vendas: int = 1,
     rho_mercado: float = 0.0,
-    frac_idiossincratica: float = 0.0,
     n_sims: int = 10_000,
     seed: int = SEED,
 ) -> dict:
@@ -112,10 +79,8 @@ def simular_viabilidade(
     fixos do projeto, não dimensões incertas — as incertezas dominantes são
     preço, infra e absorção.
 
-    Refinamentos (default = comportamento independente):
+    Refinamento (default = comportamento independente):
     - `rho_mercado` (>0): acopla preço e absorção por um estado de mercado comum.
-    - `frac_idiossincratica` (>0): separa a incerteza de preço em sistemática
-      (nível) e por-lote (diversifica ∝ 1/√n_lotes).
 
     Retorna prob_viavel e as distribuições de VPL e TIR anual (NaN onde a TIR é
     indefinida, ex.: fluxo sem inversão de sinal).
@@ -127,10 +92,6 @@ def simular_viabilidade(
     if rho_mercado > 0.0:
         precos, vendas_f = amostrar_mercado_correlacionado(
             preco_lote, meses_vendas, rho_mercado, n_sims, rng
-        )
-    if frac_idiossincratica > 0.0:
-        precos = amostrar_preco_efetivo(
-            preco_lote, frac_idiossincratica, n_lotes, precos, rng
         )
     vendas = np.maximum(1, np.round(vendas_f)).astype(int)
 
